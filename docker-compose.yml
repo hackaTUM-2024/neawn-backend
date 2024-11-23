@@ -1,19 +1,19 @@
 version: '3.8'
 
 services:
-  postgres:
-    image: postgres:latest
-    container_name: check24-postgres
+  timescaledb:
+    image: timescale/timescaledb-ha:pg17
+    container_name: check24-timescaledb
     environment:
       POSTGRES_PASSWORD: mysecretpassword
     ports:
-      - "5432:5432" # Espone PostgreSQL sulla porta 5432
+      - "5432:5432" # Espone TimescaleDB sulla porta 5432
 
   pgbouncer:
     image: pgbouncer/pgbouncer
     container_name: check24-pgbouncer
     environment:
-      DATABASES_HOST: postgres
+      DATABASES_HOST: timescaledb
       DATABASES_PORT: 5432
       DATABASES_USER: postgres
       DATABASES_PASSWORD: mysecretpassword
@@ -23,6 +23,7 @@ services:
       # TODO: Add more configurations
     ports:
       - "5439:5439" # Espone PgBouncer sulla porta 5439
+
   redis:
     image: redis:latest
     container_name: check24-redis
