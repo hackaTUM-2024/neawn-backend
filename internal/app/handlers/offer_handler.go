@@ -131,11 +131,10 @@ func (h *OfferHandler) CreateOffers(c *gin.Context) {
 	}
 
 	h.mutex.Lock()
-	defer h.mutex.Unlock()
-
 	h.offers = append(h.offers, request.Offers...)
+	h.mutex.Unlock()
 
-	fmt.Println("# of offers:", len(h.offers))
+	// fmt.Println("# of offers:", len(h.offers))
 
 	c.Status(http.StatusOK)
 }
