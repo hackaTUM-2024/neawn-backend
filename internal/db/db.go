@@ -12,7 +12,7 @@ var Conn *pgx.Conn
 
 func Init() {
 	var err error
-	connString := "postgres://postgres:mysecretpassword@localhost:5433/postgres?sslmode=disable"
+	connString := "postgres://postgres:mysecretpassword@localhost:5439/postgres"
 
 	Conn, err = pgx.Connect(context.Background(), connString)
 	if err != nil {
