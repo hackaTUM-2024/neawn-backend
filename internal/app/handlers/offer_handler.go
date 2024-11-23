@@ -8,17 +8,20 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 )
 
 type OfferHandler struct {
-	offers []models.Offer // This should be replaced with a proper database
+	offers []models.Offer
+	mutex  sync.RWMutex
 }
 
 func NewOfferHandler() *OfferHandler {
 	return &OfferHandler{
 		offers: make([]models.Offer, 0),
+		mutex:  sync.RWMutex{},
 	}
 }
 
@@ -127,7 +130,9 @@ func (h *OfferHandler) CreateOffers(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement actual offer creation logic
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
 	h.offers = append(h.offers, request.Offers...)
 
 	fmt.Println("# of offers:", len(h.offers))
@@ -136,7 +141,9 @@ func (h *OfferHandler) CreateOffers(c *gin.Context) {
 }
 
 func (h *OfferHandler) CleanupData(c *gin.Context) {
-	// TODO: Implement cleanup logic
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
 	h.offers = make([]models.Offer, 0)
 	c.Status(http.StatusOK)
 }
