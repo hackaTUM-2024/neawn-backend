@@ -14,14 +14,31 @@ import (
 )
 
 type OfferHandler struct {
-	offers []models.Offer
-	mutex  sync.RWMutex
+	offers       []models.Offer
+	mutex        sync.RWMutex
+	writeChannel chan models.Offer
+	wg           sync.WaitGroup
 }
 
 func NewOfferHandler() *OfferHandler {
-	return &OfferHandler{
-		offers: make([]models.Offer, 0),
-		mutex:  sync.RWMutex{},
+	h := &OfferHandler{
+		offers:       make([]models.Offer, 0),
+		mutex:        sync.RWMutex{},
+		writeChannel: make(chan models.Offer),
+		wg:           sync.WaitGroup{},
+	}
+
+	go h.handleWrites()
+
+	return h
+}
+
+func (h *OfferHandler) handleWrites() {
+	for offer := range h.writeChannel {
+		h.mutex.Lock()
+		h.offers = append(h.offers, offer)
+		h.mutex.Unlock()
+		h.wg.Done()
 	}
 }
 
@@ -130,22 +147,21 @@ func (h *OfferHandler) CreateOffers(c *gin.Context) {
 		return
 	}
 
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
+	h.wg.Add(len(request.Offers))
+	for _, offer := range request.Offers {
+		h.writeChannel <- offer
+	}
 
-	h.offers = append(h.offers, request.Offers...)
+	h.wg.Wait()
 
-	fmt.Println("# of offers:", len(h.offers))
-
-	c.Status(http.StatusOK)
+	c.JSON(http.StatusOK, gin.H{"status": "offers created successfully"})
 }
 
 func (h *OfferHandler) CleanupData(c *gin.Context) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
-
-	h.offers = make([]models.Offer, 0)
-	c.Status(http.StatusOK)
+	h.offers = nil
+	c.JSON(http.StatusOK, gin.H{"status": "data cleaned up successfully"})
 }
 
 func generateCarTypeCounts(offers []models.Offer, params SearchParams) models.CarTypeCount {
