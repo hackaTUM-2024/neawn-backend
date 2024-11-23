@@ -65,7 +65,7 @@ func (h *OfferHandler) GetOffers(c *gin.Context) {
 		if params.MinPrice > 0 && offer.Price < params.MinPrice {
 			continue
 		}
-		if params.MaxPrice > 0 && offer.Price > params.MaxPrice {
+		if params.MaxPrice > 0 && offer.Price >= params.MaxPrice {
 			continue
 		}
 
@@ -86,8 +86,11 @@ func (h *OfferHandler) GetOffers(c *gin.Context) {
 	// 3. Paginate results
 	start, end := calculatePagination(len(filteredOptionalOffers), *params.Page, params.PageSize)
 	paginatedOffers := filteredOptionalOffers
+
 	if end > 0 {
 		paginatedOffers = filteredOptionalOffers[start:end]
+	} else {
+		paginatedOffers = []models.Offer{}
 	}
 
 	// 4. Convert to SearchResultOffers
@@ -154,7 +157,7 @@ func generateCarTypeCounts(offers []models.Offer, params SearchParams) models.Ca
 		if params.MinPrice > 0 && offer.Price < params.MinPrice {
 			continue
 		}
-		if params.MaxPrice > 0 && offer.Price > params.MaxPrice {
+		if params.MaxPrice > 0 && offer.Price >= params.MaxPrice {
 			continue
 		}
 
@@ -200,7 +203,7 @@ func generateSeatsCount(offers []models.Offer, params SearchParams) []models.Sea
 		if params.MinPrice > 0 && offer.Price < params.MinPrice {
 			continue
 		}
-		if params.MaxPrice > 0 && offer.Price > params.MaxPrice {
+		if params.MaxPrice > 0 && offer.Price >= params.MaxPrice {
 			continue
 		}
 
@@ -217,9 +220,9 @@ func generateSeatsCount(offers []models.Offer, params SearchParams) []models.Sea
 	}
 
 	// Sort by number of seats
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].NumberSeats < result[j].NumberSeats
-	})
+	// sort.Slice(result, func(i, j int) bool {
+	// 	return result[i].NumberSeats < result[j].NumberSeats
+	// })
 
 	return result
 }
@@ -242,7 +245,7 @@ func generateFreeKilometerRanges(offers []models.Offer, params SearchParams) []m
 		if params.MinPrice > 0 && offer.Price < params.MinPrice {
 			continue
 		}
-		if params.MaxPrice > 0 && offer.Price > params.MaxPrice {
+		if params.MaxPrice > 0 && offer.Price >= params.MaxPrice {
 			continue
 		}
 
@@ -251,6 +254,10 @@ func generateFreeKilometerRanges(offers []models.Offer, params SearchParams) []m
 		}
 
 		filteredOffers = append(filteredOffers, offer)
+	}
+
+	if len(filteredOffers) == 0 {
+		return []models.FreeKilometerRange{}
 	}
 
 	// Find min and max free kilometers
@@ -277,7 +284,7 @@ func generateFreeKilometerRanges(offers []models.Offer, params SearchParams) []m
 	for start := minKm; start <= maxKm; start += uint16(params.MinFreeKilometerWidth) {
 		end := start + uint16(params.MinFreeKilometerWidth) - 1
 		count := 0
-		for _, offer := range offers {
+		for _, offer := range filteredOffers {
 			if offer.FreeKilometers >= start && offer.FreeKilometers <= end {
 				count++
 			}
@@ -308,7 +315,7 @@ func generateVollkaskoCount(offers []models.Offer, params SearchParams) models.V
 		if params.MinPrice > 0 && offer.Price < params.MinPrice {
 			continue
 		}
-		if params.MaxPrice > 0 && offer.Price > params.MaxPrice {
+		if params.MaxPrice > 0 && offer.Price >= params.MaxPrice {
 			continue
 		}
 
@@ -453,6 +460,10 @@ func generatePriceRanges(offers []models.Offer, params SearchParams) []models.Pr
 		}
 
 		filteredOffers = append(filteredOffers, offer)
+	}
+
+	if len(filteredOffers) == 0 {
+		return []models.PriceRange{}
 	}
 
 	// Find min and max prices
