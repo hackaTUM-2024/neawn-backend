@@ -51,13 +51,42 @@ func (h *OfferHandler) GetOffers(c *gin.Context) {
 	// 1. Filter offers
 	filteredOffers := filterOffers(h.offers, params)
 
+	var filteredOptionalOffers []models.Offer
+	for _, offer := range filteredOffers {
+		if params.OnlyVollkasko != nil && *params.OnlyVollkasko && !offer.HasVollkasko {
+			continue
+		}
+
+		if params.CarType != "" && offer.CarType != params.CarType {
+			continue
+		}
+
+		if params.MinPrice > 0 && offer.Price < params.MinPrice {
+			continue
+		}
+		if params.MaxPrice > 0 && offer.Price > params.MaxPrice {
+			continue
+		}
+
+		if params.MinNumberSeats > 0 && offer.NumberSeats < params.MinNumberSeats {
+			continue
+		}
+
+		if params.MinFreeKilometer > 0 && offer.FreeKilometers < params.MinFreeKilometer {
+			continue
+		}
+
+		filteredOptionalOffers = append(filteredOptionalOffers, offer)
+	}
+
 	// 2. Sort offers
-	sortOffers(filteredOffers, params.SortOrder)
+	sortOffers(filteredOptionalOffers, params.SortOrder)
+
 	// 3. Paginate results
-	start, end := calculatePagination(len(filteredOffers), *params.Page, params.PageSize)
-	paginatedOffers := filteredOffers
+	start, end := calculatePagination(len(filteredOptionalOffers), *params.Page, params.PageSize)
+	paginatedOffers := filteredOptionalOffers
 	if end > 0 {
-		paginatedOffers = filteredOffers[start:end]
+		paginatedOffers = filteredOptionalOffers[start:end]
 	}
 
 	// 4. Convert to SearchResultOffers
@@ -72,11 +101,11 @@ func (h *OfferHandler) GetOffers(c *gin.Context) {
 	// 5. Generate aggregations
 	response := models.SearchResponse{
 		Offers:             searchResults,
-		PriceRanges:        generatePriceRanges(filteredOffers, params.PriceRangeWidth),
-		CarTypeCounts:      generateCarTypeCounts(filteredOffers),
-		SeatsCount:         generateSeatsCount(filteredOffers),
-		FreeKilometerRange: generateFreeKilometerRanges(filteredOffers, params.MinFreeKilometerWidth),
-		VollkaskoCount:     generateVollkaskoCount(filteredOffers),
+		PriceRanges:        generatePriceRanges(filteredOptionalOffers, params.PriceRangeWidth),
+		SeatsCount:         generateSeatsCount(filteredOptionalOffers),
+		FreeKilometerRange: generateFreeKilometerRanges(filteredOptionalOffers, params.MinFreeKilometerWidth),
+		CarTypeCounts:      generateCarTypeCounts(filteredOffers, params),
+		VollkaskoCount:     generateVollkaskoCount(filteredOffers, params),
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -85,7 +114,6 @@ func (h *OfferHandler) GetOffers(c *gin.Context) {
 func (h *OfferHandler) CreateOffers(c *gin.Context) {
 	var request models.CreateOffersRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		fmt.Println(err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -98,6 +126,8 @@ func (h *OfferHandler) CreateOffers(c *gin.Context) {
 	// TODO: Implement actual offer creation logic
 	h.offers = append(h.offers, request.Offers...)
 
+	fmt.Println("# of offers:", len(h.offers))
+
 	c.Status(http.StatusOK)
 }
 
@@ -107,7 +137,7 @@ func (h *OfferHandler) CleanupData(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-func generateCarTypeCounts(offers []models.Offer) models.CarTypeCount {
+func generateCarTypeCounts(offers []models.Offer, params SearchParams) models.CarTypeCount {
 	counts := models.CarTypeCount{
 		Small:  0,
 		Sports: 0,
@@ -116,6 +146,25 @@ func generateCarTypeCounts(offers []models.Offer) models.CarTypeCount {
 	}
 
 	for _, offer := range offers {
+		if params.OnlyVollkasko != nil && *params.OnlyVollkasko && !offer.HasVollkasko {
+			continue
+		}
+
+		if params.MinPrice > 0 && offer.Price < params.MinPrice {
+			continue
+		}
+		if params.MaxPrice > 0 && offer.Price > params.MaxPrice {
+			continue
+		}
+
+		if params.MinNumberSeats > 0 && offer.NumberSeats < params.MinNumberSeats {
+			continue
+		}
+
+		if params.MinFreeKilometer > 0 && offer.FreeKilometers < params.MinFreeKilometer {
+			continue
+		}
+
 		switch offer.CarType {
 		case "small":
 			counts.Small++
@@ -189,7 +238,7 @@ func generateFreeKilometerRanges(offers []models.Offer, width uint32) []models.F
 		if count > 0 {
 			ranges = append(ranges, models.FreeKilometerRange{
 				Start: start,
-				End:   end,
+				End:   end + 1,
 				Count: uint32(count),
 			})
 		}
@@ -198,13 +247,32 @@ func generateFreeKilometerRanges(offers []models.Offer, width uint32) []models.F
 	return ranges
 }
 
-func generateVollkaskoCount(offers []models.Offer) models.VollkaskoCount {
+func generateVollkaskoCount(offers []models.Offer, params SearchParams) models.VollkaskoCount {
 	counts := models.VollkaskoCount{
 		TrueCount:  0,
 		FalseCount: 0,
 	}
 
 	for _, offer := range offers {
+		if params.CarType != "" && offer.CarType != params.CarType {
+			continue
+		}
+
+		if params.MinPrice > 0 && offer.Price < params.MinPrice {
+			continue
+		}
+		if params.MaxPrice > 0 && offer.Price > params.MaxPrice {
+			continue
+		}
+
+		if params.MinNumberSeats > 0 && offer.NumberSeats < params.MinNumberSeats {
+			continue
+		}
+
+		if params.MinFreeKilometer > 0 && offer.FreeKilometers < params.MinFreeKilometer {
+			continue
+		}
+
 		if offer.HasVollkasko {
 			counts.TrueCount++
 		} else {
@@ -231,22 +299,7 @@ func matchesFilters(offer models.Offer, params SearchParams) bool {
 	// Time range check
 	// Check if offer is completely outside the time window
 
-	fmt.Println(offer.EndDate, params.TimeRangeStart, offer.StartDate, params.TimeRangeEnd)
-	fmt.Println(offer.EndDate < params.TimeRangeStart, offer.StartDate > params.TimeRangeEnd)
-
-	if offer.EndDate < params.TimeRangeStart || offer.StartDate > params.TimeRangeEnd {
-		return false
-	}
-
-	// Calculate the overlap duration between offer and time window
-	overlapStart := max(offer.StartDate, params.TimeRangeStart)
-	overlapEnd := min(offer.EndDate, params.TimeRangeEnd)
-	overlapDuration := overlapEnd - overlapStart
-
-	fmt.Println(overlapDuration)
-
-	// Check if overlap is long enough for requested number of days
-	if overlapDuration < int64(params.NumberDays)*86400000 {
+	if offer.StartDate < params.TimeRangeStart || offer.EndDate > params.TimeRangeEnd || (offer.EndDate-offer.StartDate) != int64(params.NumberDays)*86400000 {
 		return false
 	}
 
@@ -265,33 +318,35 @@ func matchesFilters(offer models.Offer, params SearchParams) bool {
 		}
 	}
 
-	// Price range check
-	if params.MinPrice > 0 && offer.Price < params.MinPrice {
-		return false
-	}
-	if params.MaxPrice > 0 && offer.Price > params.MaxPrice {
-		return false
-	}
+	/*
 
-	// Car type check
-	if params.CarType != "" && offer.CarType != params.CarType {
-		return false
-	}
+		// Price range check
+		if params.MinPrice > 0 && offer.Price < params.MinPrice {
+			return false
+		}
+		if params.MaxPrice > 0 && offer.Price > params.MaxPrice {
+			return false
+		}
 
-	// Seats check
-	if params.MinNumberSeats > 0 && offer.NumberSeats < params.MinNumberSeats {
-		return false
-	}
+		// Seats check
+		if params.MinNumberSeats > 0 && offer.NumberSeats < params.MinNumberSeats {
+			return false
+		}
 
-	// Free kilometer check
-	if params.MinFreeKilometer > 0 && offer.FreeKilometers < params.MinFreeKilometer {
-		return false
-	}
+		// Free kilometer check
+		if params.MinFreeKilometer > 0 && offer.FreeKilometers < params.MinFreeKilometer {
+			return false
+		}
+			// Car type check
+			if params.CarType != "" && offer.CarType != params.CarType {
+				return false
+			}
 
-	// Vollkasko check
-	if params.OnlyVollkasko != nil && *params.OnlyVollkasko && !offer.HasVollkasko {
-		return false
-	}
+			// Vollkasko check
+			if params.OnlyVollkasko != nil && *params.OnlyVollkasko && !offer.HasVollkasko {
+				return false
+			}
+	*/
 
 	return true
 }
@@ -300,17 +355,26 @@ func sortOffers(offers []models.Offer, sortOrder string) {
 	sort.Slice(offers, func(i, j int) bool {
 		switch sortOrder {
 		case "price-asc":
-			return offers[i].Price < offers[j].Price
+			if offers[i].Price != offers[j].Price {
+				return offers[i].Price < offers[j].Price
+			}
+			return offers[i].ID < offers[j].ID
 		case "price-desc":
-			return offers[i].Price > offers[j].Price
+			if offers[i].Price != offers[j].Price {
+				return offers[i].Price > offers[j].Price
+			}
+			return offers[i].ID < offers[j].ID
 		default:
-			return offers[i].Price < offers[j].Price
+			if offers[i].Price != offers[j].Price {
+				return offers[i].Price < offers[j].Price
+			}
+			return offers[i].ID < offers[j].ID
 		}
 	})
 }
 
 func calculatePagination(total int, page, pageSize uint32) (int, int) {
-	start := int((page - 1) * pageSize)
+	start := int((page) * pageSize)
 	if start >= total {
 		return 0, 0
 	}
@@ -337,7 +401,11 @@ func generatePriceRanges(offers []models.Offer, width uint32) []models.PriceRang
 
 	// Generate ranges
 	ranges := make([]models.PriceRange, 0)
-	for start := minPrice; start <= maxPrice; start += uint16(width) {
+	// Round minPrice down and maxPrice up to nearest multiple of width
+	startPrice := uint16(width) * (minPrice / uint16(width))
+	endPrice := uint16(width) * ((maxPrice + uint16(width) - 1) / uint16(width))
+
+	for start := startPrice; start <= endPrice; start += uint16(width) {
 		end := start + uint16(width) - 1
 		count := 0
 		for _, offer := range offers {
@@ -348,7 +416,7 @@ func generatePriceRanges(offers []models.Offer, width uint32) []models.PriceRang
 		if count > 0 {
 			ranges = append(ranges, models.PriceRange{
 				Start: start,
-				End:   end,
+				End:   end + 1,
 				Count: uint32(count),
 			})
 		}
