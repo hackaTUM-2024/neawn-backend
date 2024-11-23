@@ -48,9 +48,10 @@ func (h *OfferHandler) GetOffers(c *gin.Context) {
 		return
 	}
 
-	// 1. Filter offers
+	// 1. Filter offers (required filters)
 	filteredOffers := filterOffers(h.offers, params)
 
+	// Optional filters
 	var filteredOptionalOffers []models.Offer
 	for _, offer := range filteredOffers {
 		if params.OnlyVollkasko != nil && *params.OnlyVollkasko && !offer.HasVollkasko {
@@ -101,9 +102,9 @@ func (h *OfferHandler) GetOffers(c *gin.Context) {
 	// 5. Generate aggregations
 	response := models.SearchResponse{
 		Offers:             searchResults,
-		PriceRanges:        generatePriceRanges(filteredOptionalOffers, params.PriceRangeWidth),
-		SeatsCount:         generateSeatsCount(filteredOptionalOffers),
-		FreeKilometerRange: generateFreeKilometerRanges(filteredOptionalOffers, params.MinFreeKilometerWidth),
+		PriceRanges:        generatePriceRanges(filteredOffers, params),
+		SeatsCount:         generateSeatsCount(filteredOffers, params),
+		FreeKilometerRange: generateFreeKilometerRanges(filteredOffers, params),
 		CarTypeCounts:      generateCarTypeCounts(filteredOffers, params),
 		VollkaskoCount:     generateVollkaskoCount(filteredOffers, params),
 	}
@@ -180,10 +181,29 @@ func generateCarTypeCounts(offers []models.Offer, params SearchParams) models.Ca
 	return counts
 }
 
-func generateSeatsCount(offers []models.Offer) []models.SeatsCount {
+func generateSeatsCount(offers []models.Offer, params SearchParams) []models.SeatsCount {
 	// Create a map to count occurrences of each seat number
 	seatCounts := make(map[uint8]uint32)
 	for _, offer := range offers {
+		if params.MinFreeKilometer > 0 && offer.FreeKilometers < params.MinFreeKilometer {
+			continue
+		}
+
+		if params.CarType != "" && offer.CarType != params.CarType {
+			continue
+		}
+
+		if params.OnlyVollkasko != nil && *params.OnlyVollkasko && !offer.HasVollkasko {
+			continue
+		}
+
+		if params.MinPrice > 0 && offer.Price < params.MinPrice {
+			continue
+		}
+		if params.MaxPrice > 0 && offer.Price > params.MaxPrice {
+			continue
+		}
+
 		seatCounts[offer.NumberSeats]++
 	}
 
@@ -204,15 +224,39 @@ func generateSeatsCount(offers []models.Offer) []models.SeatsCount {
 	return result
 }
 
-func generateFreeKilometerRanges(offers []models.Offer, width uint32) []models.FreeKilometerRange {
+func generateFreeKilometerRanges(offers []models.Offer, params SearchParams) []models.FreeKilometerRange {
 	if len(offers) == 0 {
 		return []models.FreeKilometerRange{}
 	}
 
-	// Find min and max free kilometers
-	minKm := offers[0].FreeKilometers
-	maxKm := offers[0].FreeKilometers
+	var filteredOffers []models.Offer
 	for _, offer := range offers {
+		if params.CarType != "" && offer.CarType != params.CarType {
+			continue
+		}
+
+		if params.OnlyVollkasko != nil && *params.OnlyVollkasko && !offer.HasVollkasko {
+			continue
+		}
+
+		if params.MinPrice > 0 && offer.Price < params.MinPrice {
+			continue
+		}
+		if params.MaxPrice > 0 && offer.Price > params.MaxPrice {
+			continue
+		}
+
+		if params.MinNumberSeats > 0 && offer.NumberSeats < params.MinNumberSeats {
+			continue
+		}
+
+		filteredOffers = append(filteredOffers, offer)
+	}
+
+	// Find min and max free kilometers
+	minKm := filteredOffers[0].FreeKilometers
+	maxKm := filteredOffers[0].FreeKilometers
+	for _, offer := range filteredOffers {
 		if offer.FreeKilometers < minKm {
 			minKm = offer.FreeKilometers
 		}
@@ -224,11 +268,14 @@ func generateFreeKilometerRanges(offers []models.Offer, width uint32) []models.F
 	// Generate ranges
 	ranges := make([]models.FreeKilometerRange, 0)
 	// Round minKm down and maxKm up to nearest multiple of width
-	minKm = uint16(math.Floor(float64(minKm)/float64(width))) * uint16(width)
-	maxKm = uint16(math.Ceil(float64(maxKm)/float64(width))) * uint16(width)
+	minKm = uint16(params.MinFreeKilometerWidth) * (minKm / uint16(params.MinFreeKilometerWidth))
+	maxKm = uint16(params.MinFreeKilometerWidth) * ((maxKm + uint16(params.MinFreeKilometerWidth) - 1) / uint16(params.MinFreeKilometerWidth))
 
-	for start := minKm; start <= maxKm; start += uint16(width) {
-		end := start + uint16(width) - 1
+	// minKm = uint16(math.Floor(float64(minKm)/float64(params.MinFreeKilometerWidth))) * uint16(params.MinFreeKilometerWidth)
+	// maxKm = uint16(math.Ceil(float64(maxKm)/float64(params.MinFreeKilometerWidth))) * uint16(params.MinFreeKilometerWidth)
+
+	for start := minKm; start <= maxKm; start += uint16(params.MinFreeKilometerWidth) {
+		end := start + uint16(params.MinFreeKilometerWidth) - 1
 		count := 0
 		for _, offer := range offers {
 			if offer.FreeKilometers >= start && offer.FreeKilometers <= end {
@@ -382,15 +429,36 @@ func calculatePagination(total int, page, pageSize uint32) (int, int) {
 	return start, end
 }
 
-func generatePriceRanges(offers []models.Offer, width uint32) []models.PriceRange {
+func generatePriceRanges(offers []models.Offer, params SearchParams) []models.PriceRange {
 	if len(offers) == 0 {
 		return []models.PriceRange{}
 	}
 
-	// Find min and max prices
-	minPrice := offers[0].Price
-	maxPrice := offers[0].Price
+	var filteredOffers []models.Offer
 	for _, offer := range offers {
+		if params.CarType != "" && offer.CarType != params.CarType {
+			continue
+		}
+
+		if params.MinNumberSeats > 0 && offer.NumberSeats < params.MinNumberSeats {
+			continue
+		}
+
+		if params.MinFreeKilometer > 0 && offer.FreeKilometers < params.MinFreeKilometer {
+			continue
+		}
+
+		if params.OnlyVollkasko != nil && *params.OnlyVollkasko && !offer.HasVollkasko {
+			continue
+		}
+
+		filteredOffers = append(filteredOffers, offer)
+	}
+
+	// Find min and max prices
+	minPrice := filteredOffers[0].Price
+	maxPrice := filteredOffers[0].Price
+	for _, offer := range filteredOffers {
 		if offer.Price < minPrice {
 			minPrice = offer.Price
 		}
@@ -402,13 +470,13 @@ func generatePriceRanges(offers []models.Offer, width uint32) []models.PriceRang
 	// Generate ranges
 	ranges := make([]models.PriceRange, 0)
 	// Round minPrice down and maxPrice up to nearest multiple of width
-	startPrice := uint16(width) * (minPrice / uint16(width))
-	endPrice := uint16(width) * ((maxPrice + uint16(width) - 1) / uint16(width))
+	startPrice := uint16(params.PriceRangeWidth) * (minPrice / uint16(params.PriceRangeWidth))
+	endPrice := uint16(params.PriceRangeWidth) * ((maxPrice + uint16(params.PriceRangeWidth) - 1) / uint16(params.PriceRangeWidth))
 
-	for start := startPrice; start <= endPrice; start += uint16(width) {
-		end := start + uint16(width) - 1
+	for start := startPrice; start <= endPrice; start += uint16(params.PriceRangeWidth) {
+		end := start + uint16(params.PriceRangeWidth) - 1
 		count := 0
-		for _, offer := range offers {
+		for _, offer := range filteredOffers {
 			if offer.Price >= start && offer.Price <= end {
 				count++
 			}
