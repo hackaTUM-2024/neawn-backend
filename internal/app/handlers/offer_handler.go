@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"math"
 	"neawn-backend/internal/app/models"
+	"neawn-backend/pkg/utils"
 	"net/http"
+	"slices"
 	"sort"
 
 	"github.com/gin-gonic/gin"
@@ -21,21 +23,21 @@ func NewOfferHandler() *OfferHandler {
 }
 
 type SearchParams struct {
-	RegionID              int32  `form:"regionID" binding:"required"`
-	TimeRangeStart        int64  `form:"timeRangeStart" binding:"required"`
-	TimeRangeEnd          int64  `form:"timeRangeEnd" binding:"required"`
-	NumberDays            uint16 `form:"numberDays" binding:"required"`
-	SortOrder             string `form:"sortOrder" binding:"required,oneof=price-asc price-desc"`
-	Page                  uint32 `form:"page" binding:"required"`
-	PageSize              uint32 `form:"pageSize" binding:"required"`
-	PriceRangeWidth       uint32 `form:"priceRangeWidth" binding:"required"`
-	MinFreeKilometerWidth uint32 `form:"minFreeKilometerWidth" binding:"required"`
-	MinNumberSeats        uint8  `form:"minNumberSeats"`
-	MinPrice              uint16 `form:"minPrice"`
-	MaxPrice              uint16 `form:"maxPrice"`
-	CarType               string `form:"carType" binding:"omitempty,oneof=small sports luxury family"`
-	OnlyVollkasko         *bool  `form:"onlyVollkasko"`
-	MinFreeKilometer      uint16 `form:"minFreeKilometer"`
+	RegionID              *int32  `form:"regionID" binding:"required"`
+	TimeRangeStart        int64   `form:"timeRangeStart" binding:"required"`
+	TimeRangeEnd          int64   `form:"timeRangeEnd" binding:"required"`
+	NumberDays            uint16  `form:"numberDays" binding:"required"`
+	SortOrder             string  `form:"sortOrder" binding:"required,oneof=price-asc price-desc"`
+	Page                  *uint32 `form:"page" binding:"required"`
+	PageSize              uint32  `form:"pageSize" binding:"required"`
+	PriceRangeWidth       uint32  `form:"priceRangeWidth" binding:"required"`
+	MinFreeKilometerWidth uint32  `form:"minFreeKilometerWidth" binding:"required"`
+	MinNumberSeats        uint8   `form:"minNumberSeats"`
+	MinPrice              uint16  `form:"minPrice"`
+	MaxPrice              uint16  `form:"maxPrice"`
+	CarType               string  `form:"carType" binding:"omitempty,oneof=small sports luxury family"`
+	OnlyVollkasko         *bool   `form:"onlyVollkasko"`
+	MinFreeKilometer      uint16  `form:"minFreeKilometer"`
 }
 
 func (h *OfferHandler) GetOffers(c *gin.Context) {
@@ -51,9 +53,8 @@ func (h *OfferHandler) GetOffers(c *gin.Context) {
 
 	// 2. Sort offers
 	sortOffers(filteredOffers, params.SortOrder)
-
 	// 3. Paginate results
-	start, end := calculatePagination(len(filteredOffers), params.Page, params.PageSize)
+	start, end := calculatePagination(len(filteredOffers), *params.Page, params.PageSize)
 	paginatedOffers := filteredOffers
 	if end > 0 {
 		paginatedOffers = filteredOffers[start:end]
@@ -84,6 +85,7 @@ func (h *OfferHandler) GetOffers(c *gin.Context) {
 func (h *OfferHandler) CreateOffers(c *gin.Context) {
 	var request models.CreateOffersRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
+		fmt.Println(err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -172,6 +174,10 @@ func generateFreeKilometerRanges(offers []models.Offer, width uint32) []models.F
 
 	// Generate ranges
 	ranges := make([]models.FreeKilometerRange, 0)
+	// Round minKm down and maxKm up to nearest multiple of width
+	minKm = uint16(math.Floor(float64(minKm)/float64(width))) * uint16(width)
+	maxKm = uint16(math.Ceil(float64(maxKm)/float64(width))) * uint16(width)
+
 	for start := minKm; start <= maxKm; start += uint16(width) {
 		end := start + uint16(width) - 1
 		count := 0
@@ -209,16 +215,6 @@ func generateVollkaskoCount(offers []models.Offer) models.VollkaskoCount {
 	return counts
 }
 
-// Utility function to check if a number is within a range (inclusive)
-func isInRange(value, start, end uint16) bool {
-	return value >= start && value <= end
-}
-
-// Utility function to get the range index for a value
-func getRangeIndex(value, rangeWidth uint16) uint16 {
-	return value / rangeWidth
-}
-
 // Helper functions
 func filterOffers(offers []models.Offer, params SearchParams) []models.Offer {
 	filtered := make([]models.Offer, 0)
@@ -233,13 +229,40 @@ func filterOffers(offers []models.Offer, params SearchParams) []models.Offer {
 
 func matchesFilters(offer models.Offer, params SearchParams) bool {
 	// Time range check
-	// if offer.TimeRangeStart > params.TimeRangeEnd || offer.TimeRangeEnd < params.TimeRangeStart {
-	// 	return false
-	// }
+	// Check if offer is completely outside the time window
+
+	fmt.Println(offer.EndDate, params.TimeRangeStart, offer.StartDate, params.TimeRangeEnd)
+	fmt.Println(offer.EndDate < params.TimeRangeStart, offer.StartDate > params.TimeRangeEnd)
+
+	if offer.EndDate < params.TimeRangeStart || offer.StartDate > params.TimeRangeEnd {
+		return false
+	}
+
+	// Calculate the overlap duration between offer and time window
+	overlapStart := max(offer.StartDate, params.TimeRangeStart)
+	overlapEnd := min(offer.EndDate, params.TimeRangeEnd)
+	overlapDuration := overlapEnd - overlapStart
+
+	fmt.Println(overlapDuration)
+
+	// Check if overlap is long enough for requested number of days
+	if overlapDuration < int64(params.NumberDays)*86400000 {
+		return false
+	}
 
 	// Region check
-	if offer.MostSpecificRegionID != params.RegionID {
-		return false
+	_, isParentRegion := utils.RegionToSubregions[*params.RegionID]
+
+	// fmt.Println(isParentRegion, *params.RegionID, offer.MostSpecificRegionID)
+
+	if isParentRegion {
+		if !slices.Contains(utils.RegionToSubregions[*params.RegionID], offer.MostSpecificRegionID) {
+			return false
+		}
+	} else {
+		if *params.RegionID != offer.MostSpecificRegionID {
+			return false
+		}
 	}
 
 	// Price range check
