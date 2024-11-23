@@ -2,24 +2,17 @@ package models
 
 type CarType string
 
-const (
-	Small  CarType = "small"
-	Sports CarType = "sports"
-	Luxury CarType = "luxury"
-	Family CarType = "family"
-)
-
 type Offer struct {
-	ID                   string  `json:"ID"`
-	Data                 string  `json:"data"`
-	MostSpecificRegionID int32   `json:"mostSpecificRegionID"`
-	StartDate            int64   `json:"startDate"`
-	EndDate              int64   `json:"endDate"`
-	NumberSeats          uint8   `json:"numberSeats"`
-	Price                uint16  `json:"price"`
-	CarType              CarType `json:"carType"`
-	HasVollkasko         bool    `json:"hasVollkasko"`
-	FreeKilometers       uint16  `json:"freeKilometers"`
+	ID                   string `json:"ID"`
+	Data                 string `json:"data"`
+	MostSpecificRegionID int32  `json:"mostSpecificRegionID"`
+	StartDate            int64  `json:"startDate"`
+	EndDate              int64  `json:"endDate"`
+	NumberSeats          uint8  `json:"numberSeats"`
+	Price                uint16 `json:"price"`
+	CarType              string `json:"carType"`
+	HasVollkasko         bool   `json:"hasVollkasko"`
+	FreeKilometers       uint16 `json:"freeKilometers"`
 }
 
 type SearchResultOffer struct {
