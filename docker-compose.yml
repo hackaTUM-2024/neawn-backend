@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  timescaledb:
+    image: timescale/timescaledb-ha:pg17
+    container_name: check24-timescaledb
+    environment:
+      POSTGRES_PASSWORD: mysecretpassword
+    ports:
+      - "5432:5432" # Expose TimescaleDB on port 5432
+
+  pgbouncer:
+    image: pgbouncer/pgbouncer
+    container_name: check24-pgbouncer
+    environment:
+      DATABASES_HOST: timescaledb
+      DATABASES_PORT: 5432
+      DATABASES_USER: postgres
+      DATABASES_PASSWORD: mysecretpassword
+      DATABASES_DBNAME: postgres
+      PGBOUNCER_LISTEN_PORT: 5439
+      # TODO: Add more configurations
+      PGBOUNCER_MIN_POOL_SIZE: 1000 # pgBouncer statistics can be used to determine the right value
+      # MAX_POOL_SIZE: 10000
+      # DEFAULT_POOL_SIZE: 100
+      PGBOUNCER_POOL_MODE: transaction
+    ports:
+      - "5439:5439" # Expose PgBouncer on port 5439
+
+  redis:
+    image: redis:latest
+    container_name: check24-redis
+    ports:
+      - "6379:6379" # Expose Redis on port 6379
